@@ -1,12 +1,21 @@
 #!/usr/bin/env python3
 """
 OncoNews Web Viewer - Visualizzazione articoli via browser
+Supporta sia SQLite che PostgreSQL
 """
+import os
 from flask import Flask, render_template_string, request
 import sqlite3
-from datetime import datetime
 
 app = Flask(__name__)
+
+# Rileva quale database usare
+DATABASE_URL = os.getenv('DATABASE_URL')
+USE_POSTGRES = DATABASE_URL is not None
+
+if USE_POSTGRES:
+    import psycopg2
+    from psycopg2.extras import RealDictCursor
 
 # Template HTML semplice e pulito
 HTML_TEMPLATE = """
@@ -307,10 +316,14 @@ HTML_TEMPLATE = """
 """
 
 def get_db_connection():
-    """Connessione al database"""
-    conn = sqlite3.connect('onconews.db')
-    conn.row_factory = sqlite3.Row
-    return conn
+    """Connessione al database (SQLite o PostgreSQL)"""
+    if USE_POSTGRES:
+        conn = psycopg2.connect(DATABASE_URL)
+        return conn
+    else:
+        conn = sqlite3.connect('onconews.db')
+        conn.row_factory = sqlite3.Row
+        return conn
 
 @app.route('/')
 def index():
@@ -323,40 +336,99 @@ def index():
     page = int(request.args.get('page', 1))
     per_page = 20
 
-    # Statistiche
-    stats = {
-        'total': conn.execute('SELECT COUNT(*) as count FROM news').fetchone()['count'],
-        'scraped': conn.execute('SELECT COUNT(*) as count FROM news WHERE full_text IS NOT NULL').fetchone()['count'],
-        'pending': conn.execute('SELECT COUNT(*) as count FROM news WHERE full_text IS NULL AND scraping_status != "failed"').fetchone()['count'],
-        'failed': conn.execute('SELECT COUNT(*) as count FROM news WHERE scraping_status = "failed"').fetchone()['count']
-    }
+    if USE_POSTGRES:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
 
-    # Lista fonti per filtro
-    sources = [row['source_name'] for row in conn.execute('SELECT DISTINCT source_name FROM news WHERE source_name IS NOT NULL ORDER BY source_name').fetchall()]
+        # Statistiche
+        cursor.execute('SELECT COUNT(*) as count FROM news')
+        stats_total = cursor.fetchone()['count']
 
-    # Query articoli con filtri
-    query = 'SELECT * FROM news WHERE 1=1'
-    params = []
+        cursor.execute('SELECT COUNT(*) as count FROM news WHERE full_text IS NOT NULL')
+        stats_scraped = cursor.fetchone()['count']
 
-    if search:
-        query += ' AND (title LIKE ? OR description LIKE ?)'
-        params.extend([f'%{search}%', f'%{search}%'])
+        cursor.execute('SELECT COUNT(*) as count FROM news WHERE full_text IS NULL AND scraping_status != %s', ('failed',))
+        stats_pending = cursor.fetchone()['count']
 
-    if source:
-        query += ' AND source_name = ?'
-        params.append(source)
+        cursor.execute('SELECT COUNT(*) as count FROM news WHERE scraping_status = %s', ('failed',))
+        stats_failed = cursor.fetchone()['count']
 
-    query += ' ORDER BY published_at DESC'
+        stats = {
+            'total': stats_total,
+            'scraped': stats_scraped,
+            'pending': stats_pending,
+            'failed': stats_failed
+        }
 
-    # Conta totale risultati
-    total_results = conn.execute(query.replace('SELECT *', 'SELECT COUNT(*) as count'), params).fetchone()['count']
-    total_pages = (total_results + per_page - 1) // per_page
+        # Lista fonti per filtro
+        cursor.execute('SELECT DISTINCT source_name FROM news WHERE source_name IS NOT NULL ORDER BY source_name')
+        sources = [row['source_name'] for row in cursor.fetchall()]
 
-    # Paginazione
-    query += f' LIMIT ? OFFSET ?'
-    params.extend([per_page, (page - 1) * per_page])
+        # Query articoli con filtri
+        query = 'SELECT * FROM news WHERE 1=1'
+        params = []
 
-    articles = conn.execute(query, params).fetchall()
+        if search:
+            query += ' AND (title LIKE %s OR description LIKE %s)'
+            params.extend([f'%{search}%', f'%{search}%'])
+
+        if source:
+            query += ' AND source_name = %s'
+            params.append(source)
+
+        query += ' ORDER BY published_at DESC'
+
+        # Conta totale risultati
+        count_query = query.replace('SELECT *', 'SELECT COUNT(*) as count')
+        cursor.execute(count_query, params)
+        total_results = cursor.fetchone()['count']
+        total_pages = (total_results + per_page - 1) // per_page
+
+        # Paginazione
+        query += ' LIMIT %s OFFSET %s'
+        params.extend([per_page, (page - 1) * per_page])
+
+        cursor.execute(query, params)
+        articles = cursor.fetchall()
+
+    else:
+        # SQLite
+        cursor = conn.cursor()
+
+        # Statistiche
+        stats = {
+            'total': conn.execute('SELECT COUNT(*) as count FROM news').fetchone()['count'],
+            'scraped': conn.execute('SELECT COUNT(*) as count FROM news WHERE full_text IS NOT NULL').fetchone()['count'],
+            'pending': conn.execute('SELECT COUNT(*) as count FROM news WHERE full_text IS NULL AND scraping_status != "failed"').fetchone()['count'],
+            'failed': conn.execute('SELECT COUNT(*) as count FROM news WHERE scraping_status = "failed"').fetchone()['count']
+        }
+
+        # Lista fonti per filtro
+        sources = [row['source_name'] for row in conn.execute('SELECT DISTINCT source_name FROM news WHERE source_name IS NOT NULL ORDER BY source_name').fetchall()]
+
+        # Query articoli con filtri
+        query = 'SELECT * FROM news WHERE 1=1'
+        params = []
+
+        if search:
+            query += ' AND (title LIKE ? OR description LIKE ?)'
+            params.extend([f'%{search}%', f'%{search}%'])
+
+        if source:
+            query += ' AND source_name = ?'
+            params.append(source)
+
+        query += ' ORDER BY published_at DESC'
+
+        # Conta totale risultati
+        total_results = conn.execute(query.replace('SELECT *', 'SELECT COUNT(*) as count'), params).fetchone()['count']
+        total_pages = (total_results + per_page - 1) // per_page
+
+        # Paginazione
+        query += ' LIMIT ? OFFSET ?'
+        params.extend([per_page, (page - 1) * per_page])
+
+        articles = conn.execute(query, params).fetchall()
+
     conn.close()
 
     return render_template_string(
@@ -377,12 +449,24 @@ if __name__ == '__main__':
     print()
     print("🌐 Server avviato!")
     print()
+
+    db_type = "PostgreSQL" if USE_POSTGRES else "SQLite"
+    print(f"📊 Database: {db_type}")
+
+    if USE_POSTGRES:
+        print("🔗 Database URL: [CONFIGURED]")
+    else:
+        print("📁 Database File: onconews.db")
+
+    print()
     print("Accedi da:")
     print("  - Locale: http://localhost:5000")
-    print("  - Remoto: http://TUO_IP_VPS:5000")
+    if not USE_POSTGRES:
+        print("  - Remoto: http://TUO_IP_VPS:5000")
     print()
     print("Premi Ctrl+C per fermare il server")
     print("=" * 60)
 
     # Avvia server accessibile da remoto
-    app.run(host='0.0.0.0', port=5000, debug=False)
+    port = int(os.getenv('PORT', 5000))
+    app.run(host='0.0.0.0', port=port, debug=False)

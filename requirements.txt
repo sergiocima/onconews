@@ -15,7 +15,12 @@ nltk>=3.8.1
 # RSS feed parsing
 feedparser>=6.0.10
 
-# Database (SQLite è built-in in Python)
+# Database
+psycopg2-binary>=2.9.9  # PostgreSQL driver
+
+# Web server
+Flask>=3.0.0
+gunicorn>=21.2.0  # Production WSGI server for Render
 
 # Utilità
 python-dateutil>=2.8.2
