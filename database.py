@@ -1,6 +1,7 @@
 """
-Gestione database SQLite per OncoNews
+Gestione database per OncoNews (supporta SQLite e PostgreSQL)
 """
+import os
 import sqlite3
 from datetime import datetime
 from typing import List, Dict, Optional
@@ -8,39 +9,81 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# Rileva automaticamente quale database usare
+DATABASE_URL = os.getenv('DATABASE_URL')
+USE_POSTGRES = DATABASE_URL is not None
+
+if USE_POSTGRES:
+    import psycopg2
+    from psycopg2.extras import RealDictCursor
+    logger.info("Using PostgreSQL database")
+else:
+    logger.info("Using SQLite database")
+
 
 class NewsDatabase:
-    """Gestisce il database SQLite per le notizie oncologiche"""
+    """Gestisce il database per le notizie oncologiche (SQLite o PostgreSQL)"""
 
     def __init__(self, db_path: str = "onconews.db"):
         self.db_path = db_path
-        self.init_database()
+        self.use_postgres = USE_POSTGRES
+        self.database_url = DATABASE_URL
+
+        if not self.use_postgres:
+            self.init_database()
+
+    def get_connection(self):
+        """Ottiene una connessione al database (SQLite o PostgreSQL)"""
+        if self.use_postgres:
+            return psycopg2.connect(self.database_url)
+        else:
+            return sqlite3.connect(self.db_path)
 
     def init_database(self):
         """Inizializza il database creando le tabelle necessarie"""
-        conn = sqlite3.connect(self.db_path)
+        conn = self.get_connection()
         cursor = conn.cursor()
 
-        # Tabella principale notizie
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS news (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                url TEXT UNIQUE NOT NULL,
-                title TEXT NOT NULL,
-                source_name TEXT,
-                author TEXT,
-                published_at TIMESTAMP,
-                description TEXT,
-                full_text TEXT,
-                keywords_matched TEXT,
-                fetched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                scraping_status TEXT DEFAULT 'pending',
-                scraping_error TEXT,
-                language TEXT DEFAULT 'it'
-            )
-        """)
+        if self.use_postgres:
+            # Schema PostgreSQL
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS news (
+                    id SERIAL PRIMARY KEY,
+                    url TEXT UNIQUE NOT NULL,
+                    title TEXT NOT NULL,
+                    source_name TEXT,
+                    author TEXT,
+                    published_at TIMESTAMP,
+                    description TEXT,
+                    full_text TEXT,
+                    keywords_matched TEXT,
+                    fetched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    scraping_status TEXT DEFAULT 'pending',
+                    scraping_error TEXT,
+                    language TEXT DEFAULT 'it'
+                )
+            """)
+        else:
+            # Schema SQLite
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS news (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    url TEXT UNIQUE NOT NULL,
+                    title TEXT NOT NULL,
+                    source_name TEXT,
+                    author TEXT,
+                    published_at TIMESTAMP,
+                    description TEXT,
+                    full_text TEXT,
+                    keywords_matched TEXT,
+                    fetched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    scraping_status TEXT DEFAULT 'pending',
+                    scraping_error TEXT,
+                    language TEXT DEFAULT 'it'
+                )
+            """)
 
-        # Indici per ottimizzare le query
+        # Indici per ottimizzare le query (compatibili con entrambi)
         cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_published_at
             ON news(published_at DESC)
@@ -58,13 +101,20 @@ class NewsDatabase:
 
         conn.commit()
         conn.close()
-        logger.info(f"Database inizializzato: {self.db_path}")
+
+        db_type = "PostgreSQL" if self.use_postgres else "SQLite"
+        logger.info(f"Database inizializzato: {db_type}")
 
     def article_exists(self, url: str) -> bool:
         """Verifica se un articolo esiste già nel database"""
-        conn = sqlite3.connect(self.db_path)
+        conn = self.get_connection()
         cursor = conn.cursor()
-        cursor.execute("SELECT COUNT(*) FROM news WHERE url = ?", (url,))
+
+        if self.use_postgres:
+            cursor.execute("SELECT COUNT(*) FROM news WHERE url = %s", (url,))
+        else:
+            cursor.execute("SELECT COUNT(*) FROM news WHERE url = ?", (url,))
+
         count = cursor.fetchone()[0]
         conn.close()
         return count > 0
@@ -80,29 +130,47 @@ class NewsDatabase:
             logger.debug(f"Articolo già esistente: {article_data['url']}")
             return False
 
-        conn = sqlite3.connect(self.db_path)
+        conn = self.get_connection()
         cursor = conn.cursor()
 
         try:
-            cursor.execute("""
-                INSERT INTO news (
-                    url, title, source_name, author, published_at,
-                    description, keywords_matched, language
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                article_data['url'],
-                article_data['title'],
-                article_data.get('source_name'),
-                article_data.get('author'),
-                article_data.get('published_at'),
-                article_data.get('description'),
-                article_data.get('keywords_matched'),
-                article_data.get('language', 'it')
-            ))
+            if self.use_postgres:
+                cursor.execute("""
+                    INSERT INTO news (
+                        url, title, source_name, author, published_at,
+                        description, keywords_matched, language
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                """, (
+                    article_data['url'],
+                    article_data['title'],
+                    article_data.get('source_name'),
+                    article_data.get('author'),
+                    article_data.get('published_at'),
+                    article_data.get('description'),
+                    article_data.get('keywords_matched'),
+                    article_data.get('language', 'it')
+                ))
+            else:
+                cursor.execute("""
+                    INSERT INTO news (
+                        url, title, source_name, author, published_at,
+                        description, keywords_matched, language
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    article_data['url'],
+                    article_data['title'],
+                    article_data.get('source_name'),
+                    article_data.get('author'),
+                    article_data.get('published_at'),
+                    article_data.get('description'),
+                    article_data.get('keywords_matched'),
+                    article_data.get('language', 'it')
+                ))
+
             conn.commit()
             logger.info(f"Articolo inserito: {article_data['title'][:50]}...")
             return True
-        except sqlite3.IntegrityError:
+        except (psycopg2.IntegrityError if self.use_postgres else sqlite3.IntegrityError):
             logger.debug(f"Articolo duplicato (IntegrityError): {article_data['url']}")
             return False
         except Exception as e:
@@ -113,15 +181,23 @@ class NewsDatabase:
 
     def update_full_text(self, url: str, full_text: str, status: str = 'completed'):
         """Aggiorna il testo completo di un articolo dopo lo scraping"""
-        conn = sqlite3.connect(self.db_path)
+        conn = self.get_connection()
         cursor = conn.cursor()
 
         try:
-            cursor.execute("""
-                UPDATE news
-                SET full_text = ?, scraping_status = ?
-                WHERE url = ?
-            """, (full_text, status, url))
+            if self.use_postgres:
+                cursor.execute("""
+                    UPDATE news
+                    SET full_text = %s, scraping_status = %s
+                    WHERE url = %s
+                """, (full_text, status, url))
+            else:
+                cursor.execute("""
+                    UPDATE news
+                    SET full_text = ?, scraping_status = ?
+                    WHERE url = ?
+                """, (full_text, status, url))
+
             conn.commit()
             logger.debug(f"Testo aggiornato per: {url}")
         except Exception as e:
@@ -131,15 +207,23 @@ class NewsDatabase:
 
     def update_scraping_error(self, url: str, error: str):
         """Registra un errore durante lo scraping"""
-        conn = sqlite3.connect(self.db_path)
+        conn = self.get_connection()
         cursor = conn.cursor()
 
         try:
-            cursor.execute("""
-                UPDATE news
-                SET scraping_status = 'failed', scraping_error = ?
-                WHERE url = ?
-            """, (error, url))
+            if self.use_postgres:
+                cursor.execute("""
+                    UPDATE news
+                    SET scraping_status = 'failed', scraping_error = %s
+                    WHERE url = %s
+                """, (error, url))
+            else:
+                cursor.execute("""
+                    UPDATE news
+                    SET scraping_status = 'failed', scraping_error = ?
+                    WHERE url = ?
+                """, (error, url))
+
             conn.commit()
         except Exception as e:
             logger.error(f"Errore registrazione errore scraping: {e}")
@@ -148,25 +232,36 @@ class NewsDatabase:
 
     def get_articles_to_scrape(self, limit: int = 100) -> List[Dict]:
         """Ottiene gli articoli che non hanno ancora il testo completo"""
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
+        conn = self.get_connection()
 
-        cursor.execute("""
-            SELECT id, url, title, source_name
-            FROM news
-            WHERE scraping_status = 'pending'
-            ORDER BY published_at DESC
-            LIMIT ?
-        """, (limit,))
+        if self.use_postgres:
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+            cursor.execute("""
+                SELECT id, url, title, source_name
+                FROM news
+                WHERE scraping_status = 'pending'
+                ORDER BY published_at DESC
+                LIMIT %s
+            """, (limit,))
+            articles = [dict(row) for row in cursor.fetchall()]
+        else:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id, url, title, source_name
+                FROM news
+                WHERE scraping_status = 'pending'
+                ORDER BY published_at DESC
+                LIMIT ?
+            """, (limit,))
+            articles = [dict(row) for row in cursor.fetchall()]
 
-        articles = [dict(row) for row in cursor.fetchall()]
         conn.close()
         return articles
 
     def get_statistics(self) -> Dict:
         """Ottiene statistiche sul database"""
-        conn = sqlite3.connect(self.db_path)
+        conn = self.get_connection()
         cursor = conn.cursor()
 
         stats = {}
@@ -210,9 +305,13 @@ class NewsDatabase:
         Returns:
             Lista di dizionari con i dati degli articoli
         """
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
+        conn = self.get_connection()
+
+        if self.use_postgres:
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+        else:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
 
         cursor.execute("""
             SELECT

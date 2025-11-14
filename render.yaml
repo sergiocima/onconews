@@ -1,0 +1,45 @@
+# Configurazione Render per OncoNews
+# https://render.com/docs/blueprint-spec
+
+services:
+  # Web Service - Visualizzatore Web Flask
+  - type: web
+    name: onconews-viewer
+    runtime: python
+    plan: free  # Piano gratuito di Render
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn web_viewer:app
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: DATABASE_URL
+        fromDatabase:
+          name: onconews-db
+          property: connectionString
+      - key: NEWS_API_KEY
+        sync: false  # Da configurare manualmente nel dashboard
+
+  # Cron Job - Raccolta Notizie Giornaliera
+  - type: cron
+    name: onconews-fetcher
+    runtime: python
+    schedule: "0 8 * * *"  # Ogni giorno alle 8:00 UTC
+    buildCommand: pip install -r requirements.txt
+    startCommand: python main.py
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: DATABASE_URL
+        fromDatabase:
+          name: onconews-db
+          property: connectionString
+      - key: NEWS_API_KEY
+        sync: false  # Da configurare manualmente nel dashboard
+
+# Database PostgreSQL
+databases:
+  - name: onconews-db
+    plan: free  # Piano gratuito (gratis per 90 giorni)
+    databaseName: onconews
+    user: onconews
+    postgresMajorVersion: 15
