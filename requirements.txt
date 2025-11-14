@@ -1,0 +1,21 @@
+# OncoNews - Requirements
+# Sistema di raccolta notizie terapie antitumorali
+
+# Core dependencies
+requests>=2.31.0
+beautifulsoup4>=4.12.0
+newspaper3k>=0.2.8
+lxml>=4.9.0
+python-dotenv>=1.0.0
+PyYAML>=6.0.1
+
+# NLP e text processing (già presenti per SBERT)
+nltk>=3.8.1
+
+# RSS feed parsing
+feedparser>=6.0.10
+
+# Database (SQLite è built-in in Python)
+
+# Utilità
+python-dateutil>=2.8.2

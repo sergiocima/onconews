@@ -1,0 +1,166 @@
+# Configurazione OncoNews - Sistema di raccolta notizie terapie antitumorali
+
+# Chiave API News API (inserisci la tua nel file .env)
+news_api:
+  language: it
+  sort_by: publishedAt  # publishedAt, relevancy, popularity
+  page_size: 100
+
+# Keywords per la ricerca notizie oncologiche
+# Puoi aggiungere, rimuovere o modificare queste keywords
+keywords:
+  # Termini generali
+  - "terapia antitumorale"
+  - "cura cancro"
+  - "terapia oncologica"
+  - "farmaco antitumorale"
+  - "nuovo trattamento cancro"
+
+  # Tipi di terapie
+  - "immunoterapia"
+  - "chemioterapia"
+  - "radioterapia"
+  - "CAR-T"
+  - "terapia genica"
+  - "terapia target"
+  - "terapia mirata"
+  - "anticorpi monoclonali"
+
+  # Trial e approvazioni
+  - "trial clinico oncologia"
+  - "sperimentazione tumore"
+  - "approvazione AIFA cancro"
+  - "nuovo farmaco tumore"
+
+  # Tipi specifici di tumore (esempi)
+  - "tumore polmone"
+  - "tumore seno"
+  - "tumore colon"
+  - "leucemia"
+  - "linfoma"
+  - "melanoma"
+  - "glioblastoma"
+  - "tumore prostata"
+  - "tumore pancreas"
+
+# Fonti da escludere (domini da filtrare)
+excluded_domains:
+  - "example-spam.com"
+
+# Sistema di filtri intelligente (applicato PRIMA dello scraping)
+content_filter:
+  enabled: true  # Abilita/disabilita il filtro
+
+  # Keyword NEGATIVE - Se presenti nel titolo o description, l'articolo viene SCARTATO
+  excluded_keywords:
+    # Necrologi e lutti
+    - "è morto"
+    - "morto"
+    - "è morta"
+    - "morta"
+    - "lutto"
+    - "addio"
+    - "necrologio"
+    - "deceduto"
+    - "scomparso"
+    - "scompars"
+
+    # Eventi non scientifici
+    - "oroscopo"
+    - "solidarietà"
+    - "beneficenza"
+    - "raccolta fondi"
+    - "donazione"
+    - "torneo"
+    - "partita"
+    - "gara"
+    - "concerto"
+    - "evento"
+
+    # Sport/cronaca
+    - "calcio"
+    - "serie A"
+    - "campionato"
+    - "scudetto"
+    - "attaccante"
+    - "difensore"
+    - "allenatore"
+
+    # Altro
+    - "vincita"
+    - "premio"
+    - "gala"
+
+    # Politica/economia/tasse
+    - "tassa"
+    - "tasse"
+    - "fiscale"
+    - "imposta"
+    - "imposte"
+    - "tributo"
+    - "governo"
+    - "ministro"
+    - "politica"
+    - "elettorale"
+    - "voto"
+    - "sondaggio"
+    - "italiani favorevoli"
+    - "italiani contrari"
+
+  # Keyword POSITIVE - Almeno UNA deve essere presente per considerare l'articolo valido
+  # RIMOSSE parole troppo generiche come "ricerca" e "studio" che appaiono ovunque
+  required_keywords:
+    - "terapia"
+    - "terapeutico"
+    - "cura"
+    - "curare"
+    - "farmaco"
+    - "medicinale"
+    - "trattamento"
+    - "trial clinico"
+    - "sperimentazione"
+    - "approvazione"
+    - "approvato"
+    - "efficace"
+    - "efficacia"
+    - "molecola"
+    - "principio attivo"
+    - "protocollo"
+    - "somministrazione"
+    - "dosaggio"
+    - "prevenzione"
+    - "preventivo"
+    - "diagnosi"
+    - "diagnostico"
+    - "screening"
+    - "biomarcatore"
+    - "biopsia"
+    - "chirurgia"
+    - "chirurgico"
+    - "radioterapia"
+    - "chemioterapia"
+    - "immunoterapia"
+    - "oncolog"
+    - "paziente"
+    - "pazienti"
+    - "malato"
+    - "malati"
+
+  # Log articoli filtrati (per debugging)
+  log_filtered: true
+  log_file: "filtered_articles.log"
+
+# Configurazione scraping testo completo
+scraping:
+  timeout: 30  # secondi
+  max_retries: 3
+  user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+
+# Database
+database:
+  path: "onconews.db"
+
+# Logging
+logging:
+  level: INFO  # DEBUG, INFO, WARNING, ERROR
+  file: "onconews.log"
